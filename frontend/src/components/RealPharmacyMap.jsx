@@ -31,6 +31,25 @@ const CITY_PRESETS = [
   { name: 'Kolkata (Park Street)', lat: 22.5535, lng: 88.3519 }
 ];
 
+// 100% Free Tile Layers with ZERO API Keys and ZERO Watermarks
+const TILE_LAYERS = {
+  streets: {
+    label: 'Street Map',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Esri, HERE, Garmin, OpenStreetMap'
+  },
+  osm: {
+    label: 'OpenStreetMap',
+    url: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+    attribution: 'OpenStreetMap contributors'
+  },
+  satellite: {
+    label: 'Satellite',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    attribution: 'Esri, Maxar, Earthstar Geographics'
+  }
+};
+
 export default function RealPharmacyMap({ masterInventory = [], onSelectPharmacy }) {
   // Patient Location state (defaults to Chennai, auto-upgrades to live device GPS)
   const [patientLocation, setPatientLocation] = useState({
@@ -45,10 +64,11 @@ export default function RealPharmacyMap({ masterInventory = [], onSelectPharmacy
   const [selectedPharmacy, setSelectedPharmacy] = useState(null);
   const [gpsLoading, setGpsLoading] = useState(false);
   const [gpsError, setGpsError] = useState(null);
-  const [tileLayerType, setTileLayerType] = useState('streets'); // 'streets' | 'voyager' | 'satellite'
+  const [tileLayerType, setTileLayerType] = useState('streets'); // 'streets' | 'osm' | 'satellite'
 
   const mapContainerRef = useRef(null);
   const mapInstanceRef = useRef(null);
+  const tileLayerRef = useRef(null);
   const circleLayerRef = useRef(null);
   const markersGroupRef = useRef(null);
 
@@ -187,13 +207,27 @@ export default function RealPharmacyMap({ masterInventory = [], onSelectPharmacy
         attributionControl: false
       });
 
-      // Carto Voyager high-resolution tiles (Google Maps-like clean vector look)
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19
+      // High-resolution street map (100% Free, NO API KEY REQUIRED)
+      const tileConfig = TILE_LAYERS[tileLayerType] || TILE_LAYERS.streets;
+      tileLayerRef.current = L.tileLayer(tileConfig.url, {
+        maxZoom: 19,
+        attribution: tileConfig.attribution
       }).addTo(map);
 
       markersGroupRef.current = L.layerGroup().addTo(map);
       mapInstanceRef.current = map;
+    }
+
+    // Dynamic tile layer swap when user switches Streets / OSM / Satellite
+    if (mapInstanceRef.current && tileLayerRef.current) {
+      const tileConfig = TILE_LAYERS[tileLayerType] || TILE_LAYERS.streets;
+      if (tileLayerRef.current._url !== tileConfig.url) {
+        mapInstanceRef.current.removeLayer(tileLayerRef.current);
+        tileLayerRef.current = L.tileLayer(tileConfig.url, {
+          maxZoom: 19,
+          attribution: tileConfig.attribution
+        }).addTo(mapInstanceRef.current);
+      }
     }
 
     const map = mapInstanceRef.current;
@@ -403,22 +437,45 @@ export default function RealPharmacyMap({ masterInventory = [], onSelectPharmacy
             </select>
           </div>
 
-          {/* Radar Radius Filters */}
-          <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl text-xs font-bold">
-            <span className="text-slate-500 px-2">Radar Radius:</span>
-            {[1, 3, 5, 10].map((r) => (
-              <button
-                key={r}
-                onClick={() => setSelectedRadiusKm(r)}
-                className={`px-3 py-1.5 rounded-xl transition font-extrabold ${
-                  selectedRadiusKm === r
-                    ? 'bg-emerald-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
-                }`}
-              >
-                {r} km
-              </button>
-            ))}
+          {/* Map Layer Switcher & Radius Filters */}
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Map Style (100% Free, NO API KEY REQUIRED) */}
+            <div className="flex items-center gap-1 bg-slate-100 p-1.5 rounded-2xl text-xs font-bold">
+              <span className="text-slate-500 px-1.5 flex items-center gap-1">
+                <Layers className="h-3 w-3" /> Style:
+              </span>
+              {Object.keys(TILE_LAYERS).map((key) => (
+                <button
+                  key={key}
+                  onClick={() => setTileLayerType(key)}
+                  className={`px-2.5 py-1 rounded-xl transition ${
+                    tileLayerType === key
+                      ? 'bg-slate-900 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  {TILE_LAYERS[key].label}
+                </button>
+              ))}
+            </div>
+
+            {/* Radar Radius Filters */}
+            <div className="flex items-center gap-1.5 bg-slate-100 p-1.5 rounded-2xl text-xs font-bold">
+              <span className="text-slate-500 px-2">Radius:</span>
+              {[1, 3, 5, 10].map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setSelectedRadiusKm(r)}
+                  className={`px-3 py-1.5 rounded-xl transition font-extrabold ${
+                    selectedRadiusKm === r
+                      ? 'bg-emerald-600 text-white shadow-xs'
+                      : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200'
+                  }`}
+                >
+                  {r} km
+                </button>
+              ))}
+            </div>
           </div>
         </div>
       </div>
