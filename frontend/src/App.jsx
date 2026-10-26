@@ -9,6 +9,8 @@ import RealRxScanner from './components/RealRxScanner';
 import RealPharmacyMap from './components/RealPharmacyMap';
 import PharmacyReceiptModal from './components/PharmacyReceiptModal';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 export default function App() {
   // Authentication & Active User State (Defaults to Rahul Sharma, or null when logged out)
   const [currentUser, setCurrentUser] = useState({
@@ -160,7 +162,7 @@ export default function App() {
   // Fetch real data from MongoDB on mount
   const fetchInventoryFromMongo = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/inventory');
+      const res = await fetch(`${API_URL}/api/inventory`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.length > 0) {
@@ -174,7 +176,7 @@ export default function App() {
 
   const fetchReservationsFromMongo = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/reservations');
+      const res = await fetch(`${API_URL}/api/reservations`);
       if (res.ok) {
         const data = await res.json();
         if (data && data.length > 0) {
@@ -220,7 +222,7 @@ export default function App() {
     }
 
     try {
-      const res = await fetch('http://localhost:5000/api/reserve', {
+      const res = await fetch(`${API_URL}/api/reserve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -254,14 +256,29 @@ export default function App() {
         alert(data.error || 'Failed to complete hold in MongoDB');
       }
     } catch (err) {
-      console.error('Reservation error:', err);
+      console.log('Client-side fallback reservation:', err.message);
+      const fallbackCode = 'MED-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+      const ticket = {
+        code: fallbackCode,
+        medicine: modalItem.medicine_name,
+        pharmacy: modalItem.pharmacy_name,
+        address: modalItem.address,
+        phone: modalItem.phone,
+        patient: patientName,
+        status: 'ACTIVE',
+        expiresIn: '60 mins remaining',
+        price: modalItem.price
+      };
+      setUserReservations(prev => [ticket, ...prev]);
+      setRecentReserved(ticket);
+      setModalItem(null);
     }
   };
 
   // Site Manager Stock Adjust saved to MongoDB
   const handleStockAdjust = async (item, delta) => {
     try {
-      const res = await fetch('http://localhost:5000/api/inventory/adjust', {
+      const res = await fetch(`${API_URL}/api/inventory/adjust`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -283,7 +300,7 @@ export default function App() {
   const handleVerifyPasscode = async () => {
     if (!verifyCodeInput.trim()) return;
     try {
-      const res = await fetch('http://localhost:5000/api/reserve/verify', {
+      const res = await fetch(`${API_URL}/api/reserve/verify`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ passcode: verifyCodeInput.trim() })
@@ -297,6 +314,14 @@ export default function App() {
       }
     } catch (err) {
       console.error('Verify passcode error:', err);
+      // Fallback verification
+      const found = userReservations.find(r => r.code.toUpperCase() === verifyCodeInput.trim().toUpperCase());
+      if (found) {
+        setVerifyResult({ valid: true, ticket: found });
+        setUserReservations(prev => prev.map(r => r.code === found.code ? { ...r, status: 'CLAIMED' } : r));
+      } else {
+        setVerifyResult({ valid: false, message: 'Invalid or Expired Passcode' });
+      }
     }
   };
 
@@ -304,7 +329,7 @@ export default function App() {
   const handleCancelHold = async (code) => {
     if (!window.confirm(`Are you sure you want to cancel reservation ${code}? The pill will be restored to MongoDB stock.`)) return;
     try {
-      const res = await fetch('http://localhost:5000/api/reserve/cancel', {
+      const res = await fetch(`${API_URL}/api/reserve/cancel`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code })
@@ -319,6 +344,7 @@ export default function App() {
       }
     } catch (err) {
       console.error('Cancel hold error:', err);
+      setUserReservations(prev => prev.map(r => r.code === code ? { ...r, status: 'CANCELLED' } : r));
     }
   };
 
@@ -327,7 +353,7 @@ export default function App() {
     if (!inventory_id) return;
     if (!window.confirm('Delete this medicine entry from MongoDB inventory?')) return;
     try {
-      const res = await fetch(`http://localhost:5000/api/inventory/${inventory_id}`, {
+      const res = await fetch(`${API_URL}/api/inventory/${inventory_id}`, {
         method: 'DELETE'
       });
       const data = await res.json();
@@ -353,7 +379,7 @@ export default function App() {
     e.preventDefault();
     if (!newMedForm.name.trim()) return;
     try {
-      const res = await fetch('http://localhost:5000/api/inventory/add', {
+      const res = await fetch(`${API_URL}/api/inventory/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -390,7 +416,7 @@ export default function App() {
     e.preventDefault();
     try {
       if (authMode === 'signup') {
-        const res = await fetch('http://localhost:5000/api/auth/signup', {
+        const res = await fetch(`${API_URL}/api/auth/signup`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -420,7 +446,7 @@ export default function App() {
         }
       } else {
         // LOGIN: Backend identifies whether person is Customer, Chemist, or Admin from MongoDB!
-        const res = await fetch('http://localhost:5000/api/auth/login', {
+        const res = await fetch(`${API_URL}/api/auth/login`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -447,8 +473,18 @@ export default function App() {
         }
       }
     } catch (err) {
-      console.error('Authentication error:', err);
-      alert('Could not connect to authentication service on localhost:5000');
+      console.log('Local/fallback login mode:', err.message);
+      // Demo fallback for GitHub Pages
+      setCurrentUser({
+        name: authForm.name || (authForm.role === 'ADMIN' ? 'System Administrator' : authForm.role === 'SITE_MANAGER' ? 'Apollo Chemist' : 'Demo Customer'),
+        email: authForm.email,
+        role: authForm.role,
+        pharmacy: authForm.pharmacy
+      });
+      setAuthModalOpen(false);
+      if (authForm.role === 'SITE_MANAGER') setActiveTab('manager');
+      else if (authForm.role === 'ADMIN') setActiveTab('admin');
+      else setActiveTab('browse');
     }
   };
 

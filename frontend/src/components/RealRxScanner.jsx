@@ -6,6 +6,8 @@ import {
 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+
 // Comprehensive dictionary of common prescription medicines & fuzzy patterns
 const KNOWN_MEDICINES = [
   { 
@@ -357,7 +359,7 @@ export default function RealRxScanner({ onSelectMedicine, masterInventory = [], 
   const handleSaveToMongoDB = async (med, index) => {
     setSavingMedIndex(index);
     try {
-      const response = await fetch('http://localhost:5000/api/inventory/add', {
+      const response = await fetch(`${API_URL}/api/inventory/add`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
