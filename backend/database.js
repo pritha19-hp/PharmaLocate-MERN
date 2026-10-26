@@ -1,6 +1,16 @@
 const mongoose = require('mongoose');
 
-// Mongoose Schemas for MERN Stack
+// 1. User Schema (Customer / Patient, Site Manager / Chemist, Admin)
+const UserSchema = new mongoose.Schema({
+  username: { type: String, required: true },
+  email: { type: String, required: true, unique: true },
+  password: { type: String, required: true },
+  role: { type: String, enum: ['CUSTOMER', 'SITE_MANAGER', 'ADMIN'], default: 'CUSTOMER' },
+  pharmacy: { type: mongoose.Schema.Types.ObjectId, ref: 'Pharmacy', default: null },
+  created_at: { type: Date, default: Date.now }
+});
+
+// 2. Pharmacy Schema
 const PharmacySchema = new mongoose.Schema({
   name: { type: String, required: true },
   address: { type: String, required: true },
@@ -10,12 +20,14 @@ const PharmacySchema = new mongoose.Schema({
   lng: { type: Number, default: 80.2707 }
 });
 
+// 3. Medicine Schema
 const MedicineSchema = new mongoose.Schema({
   name: { type: String, required: true },
   generic_name: { type: String, required: true },
   category: { type: String, required: true }
 });
 
+// 4. Inventory Schema
 const InventorySchema = new mongoose.Schema({
   pharmacy: { type: mongoose.Schema.Types.ObjectId, ref: 'Pharmacy', required: true },
   medicine: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: true },
@@ -23,16 +35,18 @@ const InventorySchema = new mongoose.Schema({
   price: { type: Number, required: true }
 });
 
+// 5. Reservation Schema
 const ReservationSchema = new mongoose.Schema({
   reservation_code: { type: String, required: true, unique: true },
   pharmacy: { type: mongoose.Schema.Types.ObjectId, ref: 'Pharmacy', required: true },
   medicine: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: true },
   quantity: { type: Number, default: 1 },
   patient_name: { type: String, required: true },
-  status: { type: String, default: 'ACTIVE' },
+  status: { type: String, enum: ['ACTIVE', 'CLAIMED', 'EXPIRED'], default: 'ACTIVE' },
   created_at: { type: Date, default: Date.now }
 });
 
+const User = mongoose.model('User', UserSchema);
 const Pharmacy = mongoose.model('Pharmacy', PharmacySchema);
 const Medicine = mongoose.model('Medicine', MedicineSchema);
 const Inventory = mongoose.model('Inventory', InventorySchema);
@@ -44,17 +58,24 @@ const connectDB = async () => {
 
   try {
     await mongoose.connect(MONGO_URI);
-    console.log('🍃 MongoDB Connected Successfully!');
+    console.log('🍃 MongoDB Connected Successfully for PharmaLocate!');
 
     // Seed Sample MERN Data if empty
     const pharmacyCount = await Pharmacy.countDocuments();
     if (pharmacyCount === 0) {
-      console.log('Seeding initial MongoDB dataset...');
+      console.log('Seeding initial MongoDB dataset with Users, Stores & Inventory...');
 
       const p1 = await Pharmacy.create({ name: 'Apollo Pharmacy (24x7)', address: '12 Main Road, Anna Nagar', phone: '+91 98401 23456', distance: '0.8 km', lat: 13.0827, lng: 80.2707 });
       const p2 = await Pharmacy.create({ name: 'MedPlus Chemists', address: '45 North Usman St, T. Nagar', phone: '+91 98402 34567', distance: '1.4 km', lat: 13.0850, lng: 80.2750 });
       const p3 = await Pharmacy.create({ name: 'Care & Cure Wellness', address: '88 Gandhi Road, Adyar', phone: '+91 98403 45678', distance: '2.5 km', lat: 13.0800, lng: 80.2650 });
       const p4 = await Pharmacy.create({ name: 'HealthFirst Drugstore', address: '14 Velachery Main Road', phone: '+91 98404 56789', distance: '3.1 km', lat: 12.9750, lng: 80.2200 });
+
+      // Seed Users
+      await User.create([
+        { username: 'System Administrator', email: 'admin@pharmalocate.com', password: 'admin123', role: 'ADMIN' },
+        { username: 'Apollo Site Manager', email: 'apollo@chemist.com', password: 'chemist123', role: 'SITE_MANAGER', pharmacy: p1._id },
+        { username: 'Rahul Sharma', email: 'rahul@gmail.com', password: 'customer123', role: 'CUSTOMER' }
+      ]);
 
       const m1 = await Medicine.create({ name: 'Augmentin 625 Duo', generic_name: 'Amoxicillin + Clavulanic Acid', category: 'Antibiotics' });
       const m2 = await Medicine.create({ name: 'Dolo 650', generic_name: 'Paracetamol 650mg', category: 'Fever & Pain' });
@@ -86,6 +107,7 @@ const connectDB = async () => {
 
 module.exports = {
   connectDB,
+  User,
   Pharmacy,
   Medicine,
   Inventory,

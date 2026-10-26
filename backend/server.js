@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const { connectDB, Pharmacy, Medicine, Inventory, Reservation } = require('./database');
+const { connectDB, User, Pharmacy, Medicine, Inventory, Reservation } = require('./database');
 
 const app = express();
 app.use(cors());
@@ -10,13 +10,12 @@ app.use(express.json());
 // Connect to MongoDB
 connectDB();
 
-// API 1: Live Medicine Search across local pharmacies (MongoDB Aggregation / Populate)
+// API 1: Live Medicine Search across local pharmacies
 app.get('/api/search', async (req, res) => {
   try {
     const query = req.query.q || '';
     const regex = new RegExp(query, 'i');
 
-    // Find medicines matching query
     const matchingMedicines = await Medicine.find({
       $or: [
         { name: regex },
@@ -27,12 +26,10 @@ app.get('/api/search', async (req, res) => {
 
     const medicineIds = matchingMedicines.map(m => m._id);
 
-    // Find inventory items matching medicine IDs or pharmacy name search
     let inventoryItems = await Inventory.find({ medicine: { $in: medicineIds } })
       .populate('pharmacy')
       .populate('medicine');
 
-    // If query didn't match medicine directly, search pharmacy names
     if (inventoryItems.length === 0 && query) {
       const matchingPharmacies = await Pharmacy.find({ name: regex });
       const pharmacyIds = matchingPharmacies.map(p => p._id);
@@ -41,7 +38,6 @@ app.get('/api/search', async (req, res) => {
         .populate('medicine');
     }
 
-    // Format response JSON
     const formatted = inventoryItems.map(item => ({
       medicine_id: item.medicine._id,
       medicine_name: item.medicine.name,
@@ -87,7 +83,7 @@ app.post('/api/reserve', async (req, res) => {
     await inventoryItem.save();
 
     // Create Reservation record in MongoDB
-    const reservationCode = 'MERN-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    const reservationCode = 'MED-' + Math.random().toString(36).substring(2, 8).toUpperCase();
     const reservation = await Reservation.create({
       reservation_code: reservationCode,
       pharmacy: pharmacy_id,
@@ -99,14 +95,60 @@ app.post('/api/reserve', async (req, res) => {
     res.json({
       success: true,
       reservationCode: reservation.reservation_code,
-      message: 'Medicine hold confirmed for 60 minutes in MongoDB!'
+      message: 'Medicine hold confirmed for 60 minutes!'
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// API 3: Get All Pharmacies
+// API 3: Chemist Verify Passcode at Counter
+app.post('/api/reserve/verify', async (req, res) => {
+  try {
+    const { passcode } = req.body;
+    const reservation = await Reservation.findOne({ reservation_code: passcode.toUpperCase() })
+      .populate('pharmacy')
+      .populate('medicine');
+
+    if (!reservation) {
+      return res.status(404).json({ valid: false, message: 'Invalid or Expired Passcode' });
+    }
+
+    reservation.status = 'CLAIMED';
+    await reservation.save();
+
+    res.json({
+      valid: true,
+      message: 'Passcode verified successfully. Medicine dispensed!',
+      ticket: {
+        code: reservation.reservation_code,
+        medicine: reservation.medicine.name,
+        patient: reservation.patient_name,
+        pharmacy: reservation.pharmacy.name
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 4: Chemist Adjust Stock
+app.post('/api/inventory/adjust', async (req, res) => {
+  try {
+    const { pharmacy_id, medicine_id, delta } = req.body;
+    const item = await Inventory.findOne({ pharmacy: pharmacy_id, medicine: medicine_id });
+    if (!item) return res.status(404).json({ error: 'Item not found' });
+
+    item.stock = Math.max(0, item.stock + delta);
+    await item.save();
+
+    res.json({ success: true, newStock: item.stock });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 5: Get All Pharmacies
 app.get('/api/pharmacies', async (req, res) => {
   try {
     const pharmacies = await Pharmacy.find();
