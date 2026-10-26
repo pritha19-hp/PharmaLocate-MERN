@@ -5,6 +5,8 @@ import {
   Map, List, Plus, Minus, Check, BarChart3, Navigation, Upload, 
   FileText, Shield, UserPlus, Eye, Building2, Bell, CheckSquare, Printer
 } from 'lucide-react';
+import RealRxScanner from './components/RealRxScanner';
+import RealPharmacyMap from './components/RealPharmacyMap';
 
 export default function App() {
   // Authentication & Active User State
@@ -578,159 +580,26 @@ export default function App() {
           </>
         )}
 
-        {/* VIEW 2: AI PRESCRIPTION SCANNER */}
+        {/* VIEW 2: AI PRESCRIPTION SCANNER (REAL TESSERACT OCR) */}
         {activeTab === 'rx-scanner' && (
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-6">
-            <div>
-              <span className="text-xs font-bold uppercase tracking-wider text-emerald-700 bg-emerald-100 px-3 py-1 rounded-full">
-                AI Vision OCR Feature
-              </span>
-              <h2 className="text-2xl font-black text-slate-900 mt-2">Doctor's Prescription Auto-Scanner 📸</h2>
-              <p className="text-sm text-slate-500">
-                Upload a photo of your doctor's handwritten or printed prescription. Our AI vision model extracts medicine names and checks local stock instantly.
-              </p>
-            </div>
-
-            <div className="border-2 border-dashed border-emerald-300 bg-emerald-50/50 rounded-3xl p-8 text-center space-y-4">
-              <div className="bg-emerald-600 text-white p-3 rounded-full w-14 h-14 mx-auto flex items-center justify-center shadow">
-                <Upload className="h-6 w-6" />
-              </div>
-              <div>
-                <h4 className="font-bold text-slate-800 text-base">Upload Doctor's Prescription</h4>
-                <p className="text-xs text-slate-500 mt-1">Supports PNG, JPG, or PDF (Max 10MB)</p>
-              </div>
-
-              <div className="flex justify-center gap-3">
-                <button
-                  onClick={simulateRxScan}
-                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-6 py-3 rounded-xl transition shadow flex items-center gap-2"
-                >
-                  <FileText className="h-4 w-4" /> Auto-Scan Sample Rx
-                </button>
-              </div>
-            </div>
-
-            {scanning && (
-              <div className="p-4 bg-blue-50 border border-blue-200 rounded-2xl flex items-center gap-3 text-blue-800 text-xs font-bold animate-pulse">
-                <div className="h-3 w-3 bg-blue-600 rounded-full animate-ping"></div>
-                Analyzing doctor's handwriting & matching generic salts in database...
-              </div>
-            )}
-
-            {detectedMeds.length > 0 && !scanning && (
-              <div className="space-y-3 pt-2">
-                <h4 className="font-bold text-slate-900 text-sm flex items-center gap-2">
-                  <CheckCircle className="h-4 w-4 text-emerald-600" />
-                  Prescription Detected Drugs ({detectedMeds.length}):
-                </h4>
-                <div className="flex flex-wrap gap-2">
-                  {detectedMeds.map((med, i) => (
-                    <button
-                      key={i}
-                      onClick={() => {
-                        setQuery(med);
-                        setActiveTab('browse');
-                      }}
-                      className="bg-emerald-100 hover:bg-emerald-200 text-emerald-900 font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-2 border border-emerald-300"
-                    >
-                      <Pill className="h-3.5 w-3.5 text-emerald-700" />
-                      {med} — <span className="underline">Search Local Stock</span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
+          <RealRxScanner
+            masterInventory={masterInventory}
+            onSelectMedicine={(medName) => {
+              setQuery(medName);
+              setActiveTab('browse');
+            }}
+          />
         )}
 
-        {/* VIEW 3: LIVE MAP RADAR */}
+        {/* VIEW 3: LIVE MAP RADAR (REAL LEAFLET + REAL GPS + GOOGLE MAPS) */}
         {activeTab === 'map' && (
-          <div className="space-y-4">
-            <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
-                <div>
-                  <h2 className="text-2xl font-black text-slate-900">Live Pharmacy Radar Map 🗺️</h2>
-                  <p className="text-sm text-slate-500">Interactive geo-location pins of registered local chemists</p>
-                </div>
-                
-                <div className="flex items-center gap-2 bg-slate-100 p-1.5 rounded-2xl text-xs font-bold">
-                  <span className="text-slate-500 px-2">Radius:</span>
-                  {['1 km', '3 km', '5 km'].map(r => (
-                    <button
-                      key={r}
-                      onClick={() => setMapRadius(r)}
-                      className={`px-3 py-1 rounded-xl transition ${
-                        mapRadius === r ? 'bg-white text-slate-900 shadow' : 'text-slate-600 hover:text-slate-900'
-                      }`}
-                    >
-                      {r}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Map Canvas */}
-              <div className="relative w-full h-96 bg-slate-900 rounded-3xl overflow-hidden border border-slate-700 p-4 shadow-inner">
-                <div className="absolute inset-0 opacity-20 bg-[linear-gradient(to_right,#38bdf8_1px,transparent_1px),linear-gradient(to_bottom,#38bdf8_1px,transparent_1px)] bg-[size:40px_40px]"></div>
-
-                {/* Patient Pin */}
-                <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 flex flex-col items-center z-20">
-                  <div className="h-6 w-6 rounded-full bg-blue-500 border-4 border-white shadow-lg animate-pulse"></div>
-                  <span className="text-[11px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full mt-1 shadow">
-                    📍 You are here
-                  </span>
-                </div>
-
-                {/* Chemist Pins */}
-                <div className="absolute top-1/4 left-1/3 flex flex-col items-center group cursor-pointer z-10">
-                  <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white group-hover:scale-125 transition">
-                    <Store className="h-4 w-4" />
-                  </div>
-                  <div className="bg-white/95 backdrop-blur text-slate-900 rounded-xl px-2.5 py-1 text-center shadow mt-1 border border-slate-200">
-                    <p className="text-xs font-bold">Apollo Pharmacy</p>
-                    <p className="text-[10px] text-emerald-600 font-semibold">0.8 km • In Stock 🟢</p>
-                  </div>
-                </div>
-
-                <div className="absolute top-1/3 right-1/4 flex flex-col items-center group cursor-pointer z-10">
-                  <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white group-hover:scale-125 transition">
-                    <Store className="h-4 w-4" />
-                  </div>
-                  <div className="bg-white/95 backdrop-blur text-slate-900 rounded-xl px-2.5 py-1 text-center shadow mt-1 border border-slate-200">
-                    <p className="text-xs font-bold">MedPlus Chemists</p>
-                    <p className="text-[10px] text-emerald-600 font-semibold">1.4 km • In Stock 🟢</p>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-1/4 left-1/4 flex flex-col items-center group cursor-pointer z-10">
-                  <div className="bg-amber-500 text-white p-2 rounded-full shadow-lg border-2 border-white group-hover:scale-125 transition">
-                    <Store className="h-4 w-4" />
-                  </div>
-                  <div className="bg-white/95 backdrop-blur text-slate-900 rounded-xl px-2.5 py-1 text-center shadow mt-1 border border-slate-200">
-                    <p className="text-xs font-bold">Care & Cure</p>
-                    <p className="text-[10px] text-amber-600 font-semibold">2.5 km • Low Stock 🟡</p>
-                  </div>
-                </div>
-
-                <div className="absolute bottom-1/3 right-1/3 flex flex-col items-center group cursor-pointer z-10">
-                  <div className="bg-emerald-500 text-white p-2 rounded-full shadow-lg border-2 border-white group-hover:scale-125 transition">
-                    <Store className="h-4 w-4" />
-                  </div>
-                  <div className="bg-white/95 backdrop-blur text-slate-900 rounded-xl px-2.5 py-1 text-center shadow mt-1 border border-slate-200">
-                    <p className="text-xs font-bold">HealthFirst</p>
-                    <p className="text-[10px] text-emerald-600 font-semibold">3.1 km • In Stock 🟢</p>
-                  </div>
-                </div>
-
-                {/* Legend */}
-                <div className="absolute bottom-3 left-3 bg-slate-900/90 text-white px-3 py-2 rounded-2xl text-[11px] border border-slate-700 flex items-center gap-3">
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-emerald-400"></span> High Stock</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-amber-400"></span> Low Stock</span>
-                  <span className="flex items-center gap-1"><span className="h-2 w-2 rounded-full bg-blue-400"></span> Your GPS</span>
-                </div>
-              </div>
-            </div>
-          </div>
+          <RealPharmacyMap
+            masterInventory={masterInventory}
+            onSelectPharmacy={(pharmName) => {
+              setQuery(pharmName);
+              setActiveTab('browse');
+            }}
+          />
         )}
 
         {/* VIEW 4: MY HOLD PASSCODES */}
