@@ -42,7 +42,7 @@ const ReservationSchema = new mongoose.Schema({
   medicine: { type: mongoose.Schema.Types.ObjectId, ref: 'Medicine', required: true },
   quantity: { type: Number, default: 1 },
   patient_name: { type: String, required: true },
-  status: { type: String, enum: ['ACTIVE', 'CLAIMED', 'EXPIRED'], default: 'ACTIVE' },
+  status: { type: String, enum: ['ACTIVE', 'CLAIMED', 'EXPIRED', 'CANCELLED'], default: 'ACTIVE' },
   created_at: { type: Date, default: Date.now }
 });
 

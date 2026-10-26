@@ -155,7 +155,41 @@ export default function App() {
     }
   ]);
 
-  // Instant Search Engine
+  // Fetch real data from MongoDB on mount
+  const fetchInventoryFromMongo = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/inventory');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          setMasterInventory(data);
+        }
+      }
+    } catch (err) {
+      console.log('MongoDB inventory fetch:', err.message);
+    }
+  };
+
+  const fetchReservationsFromMongo = async () => {
+    try {
+      const res = await fetch('http://localhost:5000/api/reservations');
+      if (res.ok) {
+        const data = await res.json();
+        if (data && data.length > 0) {
+          setUserReservations(data);
+        }
+      }
+    } catch (err) {
+      console.log('MongoDB reservations fetch:', err.message);
+    }
+  };
+
+  useEffect(() => {
+    fetchInventoryFromMongo();
+    fetchReservationsFromMongo();
+  }, []);
+
+  // Instant Search Engine with live MongoDB queries
   useEffect(() => {
     let filtered = masterInventory;
 
@@ -176,69 +210,170 @@ export default function App() {
     setResults(filtered);
   }, [query, selectedCategory, masterInventory]);
 
-  // Handle Reservation
-  const confirmReservation = () => {
+  // Handle Reservation saved to MongoDB
+  const confirmReservation = async () => {
     if (!patientName.trim()) {
       alert("Please enter patient name");
       return;
     }
 
-    const newCode = 'MED-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+    try {
+      const res = await fetch('http://localhost:5000/api/reserve', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pharmacy_id: modalItem.pharmacy_id,
+          medicine_id: modalItem.medicine_id,
+          patient_name: patientName.trim(),
+          quantity: 1
+        })
+      });
 
-    // Deduct stock
-    setMasterInventory(prev => prev.map(item => {
-      if (item.medicine_id === modalItem.medicine_id && item.pharmacy_id === modalItem.pharmacy_id) {
-        return { ...item, stock: Math.max(0, item.stock - 1) };
+      const data = await res.json();
+      if (data.success) {
+        const ticket = {
+          code: data.reservationCode,
+          medicine: modalItem.medicine_name,
+          pharmacy: modalItem.pharmacy_name,
+          address: modalItem.address,
+          phone: modalItem.phone,
+          patient: patientName,
+          status: 'ACTIVE',
+          expiresIn: '60 mins remaining',
+          price: modalItem.price
+        };
+
+        setUserReservations(prev => [ticket, ...prev]);
+        setRecentReserved(ticket);
+        setModalItem(null);
+        fetchInventoryFromMongo();
+        fetchReservationsFromMongo();
+      } else {
+        alert(data.error || 'Failed to complete hold in MongoDB');
       }
-      return item;
-    }));
-
-    const ticket = {
-      code: newCode,
-      medicine: modalItem.medicine_name,
-      pharmacy: modalItem.pharmacy_name,
-      address: modalItem.address,
-      phone: modalItem.phone,
-      patient: patientName,
-      status: 'ACTIVE',
-      expiresIn: '60 mins remaining',
-      price: modalItem.price
-    };
-
-    setUserReservations(prev => [ticket, ...prev]);
-    setRecentReserved(ticket);
-    setModalItem(null);
-  };
-
-  // Site Manager Stock Adjust
-  const handleStockAdjust = (medicine_id, pharmacy_name, delta) => {
-    setMasterInventory(prev => prev.map(item => {
-      if (item.medicine_id === medicine_id && item.pharmacy_name === pharmacy_name) {
-        return { ...item, stock: Math.max(0, item.stock + delta) };
-      }
-      return item;
-    }));
-  };
-
-  // Passcode Verification
-  const handleVerifyPasscode = () => {
-    const found = userReservations.find(r => r.code.toUpperCase() === verifyCodeInput.trim().toUpperCase());
-    if (found) {
-      setVerifyResult({ valid: true, ticket: found });
-      setUserReservations(prev => prev.map(r => r.code === found.code ? { ...r, status: 'CLAIMED' } : r));
-    } else {
-      setVerifyResult({ valid: false, message: 'Invalid or Expired Passcode' });
+    } catch (err) {
+      console.error('Reservation error:', err);
     }
   };
 
-  // Simulate Prescription Scan
-  const simulateRxScan = () => {
-    setScanning(true);
-    setUploadedRx("sample_prescription_dr_anand.png");
-    setTimeout(() => {
-      setScanning(false);
-      setDetectedMeds(['Augmentin 625 Duo', 'Dolo 650']);
-    }, 1200);
+  // Site Manager Stock Adjust saved to MongoDB
+  const handleStockAdjust = async (item, delta) => {
+    try {
+      const res = await fetch('http://localhost:5000/api/inventory/adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pharmacy_id: item.pharmacy_id || item.pharmacy_name,
+          medicine_id: item.medicine_id,
+          delta
+        })
+      });
+
+      if (res.ok) {
+        fetchInventoryFromMongo();
+      }
+    } catch (err) {
+      console.error('Stock adjust error:', err);
+    }
+  };
+
+  // Passcode Verification in MongoDB
+  const handleVerifyPasscode = async () => {
+    if (!verifyCodeInput.trim()) return;
+    try {
+      const res = await fetch('http://localhost:5000/api/reserve/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ passcode: verifyCodeInput.trim() })
+      });
+
+      const data = await res.json();
+      setVerifyResult(data);
+      if (data.valid) {
+        fetchInventoryFromMongo();
+        fetchReservationsFromMongo();
+      }
+    } catch (err) {
+      console.error('Verify passcode error:', err);
+    }
+  };
+
+  // Cancel Reservation in MongoDB & Restore Stock
+  const handleCancelHold = async (code) => {
+    if (!window.confirm(`Are you sure you want to cancel reservation ${code}? The pill will be restored to MongoDB stock.`)) return;
+    try {
+      const res = await fetch('http://localhost:5000/api/reserve/cancel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        fetchInventoryFromMongo();
+        fetchReservationsFromMongo();
+      } else {
+        alert(data.error);
+      }
+    } catch (err) {
+      console.error('Cancel hold error:', err);
+    }
+  };
+
+  // Delete Medicine Item from MongoDB Inventory
+  const handleDeleteInventory = async (inventory_id) => {
+    if (!inventory_id) return;
+    if (!window.confirm('Delete this medicine entry from MongoDB inventory?')) return;
+    try {
+      const res = await fetch(`http://localhost:5000/api/inventory/${inventory_id}`, {
+        method: 'DELETE'
+      });
+      const data = await res.json();
+      if (data.success) {
+        fetchInventoryFromMongo();
+      }
+    } catch (err) {
+      console.error('Delete inventory error:', err);
+    }
+  };
+
+  // Chemist state for adding new medicine
+  const [showAddMedModal, setShowAddMedModal] = useState(false);
+  const [newMedForm, setNewMedForm] = useState({
+    name: '',
+    generic_name: '',
+    category: 'Antibiotics',
+    stock: 50,
+    price: 45
+  });
+
+  const handleAddNewMedicine = async (e) => {
+    e.preventDefault();
+    if (!newMedForm.name.trim()) return;
+    try {
+      const res = await fetch('http://localhost:5000/api/inventory/add', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pharmacy_name: managerStore,
+          medicine_name: newMedForm.name.trim(),
+          generic_name: newMedForm.generic_name.trim() || newMedForm.name.trim(),
+          category: newMedForm.category,
+          stock: Number(newMedForm.stock) || 50,
+          price: Number(newMedForm.price) || 45
+        })
+      });
+
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message);
+        setNewMedForm({ name: '', generic_name: '', category: 'Antibiotics', stock: 50, price: 45 });
+        setShowAddMedModal(false);
+        fetchInventoryFromMongo();
+      }
+    } catch (err) {
+      console.error('Add medicine error:', err);
+    }
   };
 
   // Auth Handler
@@ -584,6 +719,7 @@ export default function App() {
         {activeTab === 'rx-scanner' && (
           <RealRxScanner
             masterInventory={masterInventory}
+            onRefreshInventory={fetchInventoryFromMongo}
             onSelectMedicine={(medName) => {
               setQuery(medName);
               setActiveTab('browse');
@@ -639,12 +775,22 @@ export default function App() {
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Pickup Passcode</span>
                       <span className="text-2xl font-mono font-black text-emerald-700 tracking-wider">{r.code}</span>
                       <p className="text-xs font-bold text-slate-700">₹{r.price?.toFixed(2)} (Pay at Counter)</p>
-                      <button 
-                        onClick={() => window.print()}
-                        className="mt-2 text-[11px] bg-slate-900 text-white font-bold px-3 py-1.5 rounded-xl hover:bg-slate-800 transition flex items-center gap-1"
-                      >
-                        <Printer className="h-3 w-3" /> Print Pass
-                      </button>
+                      <div className="flex gap-2 mt-2">
+                        <button 
+                          onClick={() => window.print()}
+                          className="text-[11px] bg-slate-900 text-white font-bold px-3 py-1.5 rounded-xl hover:bg-slate-800 transition flex items-center gap-1"
+                        >
+                          <Printer className="h-3 w-3" /> Print
+                        </button>
+                        {r.status === 'ACTIVE' && (
+                          <button 
+                            onClick={() => handleCancelHold(r.code)}
+                            className="text-[11px] bg-rose-50 text-rose-700 border border-rose-300 font-bold px-3 py-1.5 rounded-xl hover:bg-rose-100 transition"
+                          >
+                            ✕ Cancel Hold
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 ))
@@ -715,7 +861,78 @@ export default function App() {
 
             {/* Stock Control Table */}
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200 space-y-4">
-              <h3 className="font-extrabold text-slate-900 text-lg">Pill Stock Management</h3>
+              <div className="flex justify-between items-center">
+                <div>
+                  <h3 className="font-extrabold text-slate-900 text-lg">Pill Stock Management</h3>
+                  <p className="text-xs text-slate-500">Live synced with MongoDB database collection</p>
+                </div>
+                <button
+                  onClick={() => setShowAddMedModal(!showAddMedModal)}
+                  className="bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition flex items-center gap-1.5 shadow-xs"
+                >
+                  <Plus className="h-4 w-4" /> {showAddMedModal ? 'Close Form' : 'Add New Medicine'}
+                </button>
+              </div>
+
+              {/* Add New Medicine Form for Chemist */}
+              {showAddMedModal && (
+                <form onSubmit={handleAddNewMedicine} className="bg-emerald-50/60 border border-emerald-200 rounded-2xl p-4 space-y-3">
+                  <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider">
+                    Add Medicine to {managerStore} (Saved in MongoDB)
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Medicine Name (e.g. Paracetamol 650mg)"
+                      value={newMedForm.name}
+                      onChange={(e) => setNewMedForm({ ...newMedForm, name: e.target.value })}
+                      required
+                      className="bg-white border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Generic Salt Name"
+                      value={newMedForm.generic_name}
+                      onChange={(e) => setNewMedForm({ ...newMedForm, generic_name: e.target.value })}
+                      className="bg-white border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl"
+                    />
+                    <select
+                      value={newMedForm.category}
+                      onChange={(e) => setNewMedForm({ ...newMedForm, category: e.target.value })}
+                      className="bg-white border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl"
+                    >
+                      <option value="Antibiotics">Antibiotics</option>
+                      <option value="Fever & Pain">Fever & Pain</option>
+                      <option value="Diabetes">Diabetes</option>
+                      <option value="Gastro">Gastro</option>
+                      <option value="Allergy">Allergy</option>
+                    </select>
+                    <input
+                      type="number"
+                      placeholder="Pill Stock"
+                      value={newMedForm.stock}
+                      onChange={(e) => setNewMedForm({ ...newMedForm, stock: e.target.value })}
+                      className="bg-white border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl"
+                    />
+                    <input
+                      type="number"
+                      placeholder="Price (₹)"
+                      value={newMedForm.price}
+                      onChange={(e) => setNewMedForm({ ...newMedForm, price: e.target.value })}
+                      className="bg-white border border-slate-300 text-xs font-semibold px-3 py-2 rounded-xl"
+                    />
+                  </div>
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="submit"
+                      className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-5 py-2 rounded-xl transition"
+                    >
+                      Save to MongoDB
+                    </button>
+                  </div>
+                </form>
+              )}
+
               <div className="divide-y divide-slate-100">
                 {masterInventory
                   .filter(item => item.pharmacy_name === managerStore)
@@ -724,7 +941,7 @@ export default function App() {
                       <div>
                         <h4 className="font-bold text-slate-900 text-sm">{item.medicine_name}</h4>
                         <p className="text-xs text-slate-500">{item.generic_name} • {item.category}</p>
-                        <p className="text-xs font-bold text-emerald-700 mt-0.5">₹{item.price.toFixed(2)}</p>
+                        <p className="text-xs font-bold text-emerald-700 mt-0.5">₹{item.price?.toFixed(2)}</p>
                       </div>
 
                       <div className="flex items-center gap-3">
@@ -733,19 +950,28 @@ export default function App() {
                         </span>
                         <div className="flex items-center gap-1">
                           <button
-                            onClick={() => handleStockAdjust(item.medicine_id, item.pharmacy_name, -1)}
+                            onClick={() => handleStockAdjust(item, -1)}
                             className="bg-slate-100 hover:bg-slate-200 text-slate-800 p-2 rounded-xl transition"
                             title="Decrease Stock by 1"
                           >
                             <Minus className="h-3.5 w-3.5" />
                           </button>
                           <button
-                            onClick={() => handleStockAdjust(item.medicine_id, item.pharmacy_name, 5)}
+                            onClick={() => handleStockAdjust(item, 5)}
                             className="bg-emerald-600 hover:bg-emerald-700 text-white p-2 rounded-xl transition flex items-center gap-1 text-xs font-bold px-3"
                             title="Add 5 Pills to Stock"
                           >
                             <Plus className="h-3.5 w-3.5" /> 5
                           </button>
+                          {item.inventory_id && (
+                            <button
+                              onClick={() => handleDeleteInventory(item.inventory_id)}
+                              className="bg-rose-50 hover:bg-rose-100 text-rose-700 border border-rose-200 p-2 rounded-xl transition text-xs font-bold px-2.5 ml-1"
+                              title="Delete from MongoDB"
+                            >
+                              Delete
+                            </button>
+                          )}
                         </div>
                       </div>
                     </div>

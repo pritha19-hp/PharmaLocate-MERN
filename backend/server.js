@@ -132,12 +132,22 @@ app.post('/api/reserve/verify', async (req, res) => {
   }
 });
 
-// API 4: Chemist Adjust Stock
+// API 4: Chemist Adjust Stock in MongoDB
 app.post('/api/inventory/adjust', async (req, res) => {
   try {
     const { pharmacy_id, medicine_id, delta } = req.body;
-    const item = await Inventory.findOne({ pharmacy: pharmacy_id, medicine: medicine_id });
-    if (!item) return res.status(404).json({ error: 'Item not found' });
+    let item = null;
+    if (pharmacy_id && medicine_id) {
+      item = await Inventory.findOne({ pharmacy: pharmacy_id, medicine: medicine_id });
+    }
+    if (!item) {
+      // Find by pharmacy name / medicine name if IDs were names
+      const p = await Pharmacy.findOne({ name: pharmacy_id });
+      if (p) {
+        item = await Inventory.findOne({ pharmacy: p._id, medicine: medicine_id });
+      }
+    }
+    if (!item) return res.status(404).json({ error: 'Item not found in MongoDB' });
 
     item.stock = Math.max(0, item.stock + delta);
     await item.save();
@@ -148,11 +158,196 @@ app.post('/api/inventory/adjust', async (req, res) => {
   }
 });
 
-// API 5: Get All Pharmacies
+// API 5: Get All Pharmacies from MongoDB
 app.get('/api/pharmacies', async (req, res) => {
   try {
     const pharmacies = await Pharmacy.find();
     res.json(pharmacies);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 6: Get Full Inventory from MongoDB
+app.get('/api/inventory', async (req, res) => {
+  try {
+    const inventoryItems = await Inventory.find()
+      .populate('pharmacy')
+      .populate('medicine');
+
+    const formatted = inventoryItems
+      .filter(item => item.pharmacy && item.medicine)
+      .map(item => ({
+        inventory_id: item._id,
+        medicine_id: item.medicine._id,
+        medicine_name: item.medicine.name,
+        generic_name: item.medicine.generic_name,
+        category: item.medicine.category,
+        pharmacy_id: item.pharmacy._id,
+        pharmacy_name: item.pharmacy.name,
+        address: item.pharmacy.address,
+        phone: item.pharmacy.phone,
+        distance: item.pharmacy.distance,
+        lat: item.pharmacy.lat,
+        lng: item.pharmacy.lng,
+        stock: item.stock,
+        price: item.price
+      }));
+
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 7: Add / Save New Medicine into MongoDB (From Prescription or Chemist)
+app.post('/api/inventory/add', async (req, res) => {
+  try {
+    const { pharmacy_id, pharmacy_name, medicine_name, generic_name, category = 'General', stock = 50, price = 45 } = req.body;
+
+    if (!medicine_name) {
+      return res.status(400).json({ error: 'Medicine name is required' });
+    }
+
+    // 1. Resolve Pharmacy
+    let pharmacy = null;
+    if (pharmacy_id) {
+      pharmacy = await Pharmacy.findById(pharmacy_id).catch(() => null);
+    }
+    if (!pharmacy && pharmacy_name) {
+      pharmacy = await Pharmacy.findOne({ name: pharmacy_name });
+    }
+    if (!pharmacy) {
+      pharmacy = await Pharmacy.findOne(); // Fallback to first pharmacy
+    }
+
+    // 2. Resolve or Create Medicine in MongoDB
+    let medicine = await Medicine.findOne({
+      name: { $regex: new RegExp(`^${medicine_name.trim()}$`, 'i') }
+    });
+
+    if (!medicine) {
+      medicine = await Medicine.create({
+        name: medicine_name.trim(),
+        generic_name: generic_name ? generic_name.trim() : `${medicine_name.trim()} (Generic)`,
+        category: category || 'General'
+      });
+    }
+
+    // 3. Resolve or Create Inventory in MongoDB
+    let inventory = await Inventory.findOne({
+      pharmacy: pharmacy._id,
+      medicine: medicine._id
+    });
+
+    if (inventory) {
+      inventory.stock = Number(stock);
+      inventory.price = Number(price);
+      await inventory.save();
+    } else {
+      inventory = await Inventory.create({
+        pharmacy: pharmacy._id,
+        medicine: medicine._id,
+        stock: Number(stock),
+        price: Number(price)
+      });
+    }
+
+    const populated = await Inventory.findById(inventory._id)
+      .populate('pharmacy')
+      .populate('medicine');
+
+    res.json({
+      success: true,
+      message: `Successfully saved "${medicine.name}" to MongoDB under ${pharmacy.name}!`,
+      item: {
+        inventory_id: populated._id,
+        medicine_id: populated.medicine._id,
+        medicine_name: populated.medicine.name,
+        generic_name: populated.medicine.generic_name,
+        category: populated.medicine.category,
+        pharmacy_id: populated.pharmacy._id,
+        pharmacy_name: populated.pharmacy.name,
+        address: populated.pharmacy.address,
+        phone: populated.pharmacy.phone,
+        distance: populated.pharmacy.distance,
+        lat: populated.pharmacy.lat,
+        lng: populated.pharmacy.lng,
+        stock: populated.stock,
+        price: populated.price
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 8: Delete Inventory Item from MongoDB
+app.delete('/api/inventory/:id', async (req, res) => {
+  try {
+    const deleted = await Inventory.findByIdAndDelete(req.params.id);
+    if (!deleted) return res.status(404).json({ error: 'Inventory item not found in MongoDB' });
+    res.json({ success: true, message: 'Item deleted from MongoDB inventory!' });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 9: Get All Reservations from MongoDB
+app.get('/api/reservations', async (req, res) => {
+  try {
+    const reservations = await Reservation.find()
+      .populate('pharmacy')
+      .populate('medicine')
+      .sort({ created_at: -1 });
+
+    const formatted = reservations
+      .filter(r => r.pharmacy && r.medicine)
+      .map(r => ({
+        reservation_id: r._id,
+        code: r.reservation_code,
+        medicine: r.medicine.name,
+        generic_name: r.medicine.generic_name,
+        pharmacy: r.pharmacy.name,
+        address: r.pharmacy.address,
+        phone: r.pharmacy.phone,
+        patient: r.patient_name,
+        status: r.status,
+        quantity: r.quantity,
+        created_at: r.created_at,
+        expiresIn: r.status === 'ACTIVE' ? '60 mins remaining' : r.status,
+        price: 45.00
+      }));
+
+    res.json(formatted);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 10: Cancel Reservation in MongoDB & Restore Stock
+app.post('/api/reserve/cancel', async (req, res) => {
+  try {
+    const { code } = req.body;
+    const reservation = await Reservation.findOne({ reservation_code: code.toUpperCase() });
+    if (!reservation) return res.status(404).json({ error: 'Reservation not found in MongoDB' });
+
+    if (reservation.status === 'ACTIVE') {
+      // Restore stock in MongoDB
+      const inventoryItem = await Inventory.findOne({
+        pharmacy: reservation.pharmacy,
+        medicine: reservation.medicine
+      });
+      if (inventoryItem) {
+        inventoryItem.stock += reservation.quantity;
+        await inventoryItem.save();
+      }
+    }
+
+    reservation.status = 'CANCELLED';
+    await reservation.save();
+
+    res.json({ success: true, message: `Reservation ${code} cancelled and stock restored in MongoDB!` });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
