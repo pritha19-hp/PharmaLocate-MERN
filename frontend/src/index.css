@@ -10,24 +10,12 @@
 
 /* Dedicated Clean Print Stylesheet for Pharmacy Receipt Voucher */
 @media print {
-  body * {
-    visibility: hidden;
+  header, main, nav, footer, .print-hide, .print\\:hidden {
+    display: none !important;
   }
-  #printable-receipt, #printable-receipt * {
-    visibility: visible;
-  }
-  #printable-receipt {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-    max-width: 650px;
-    margin: 0 auto;
-    padding: 24px;
+  body, html {
     background: white !important;
     color: black !important;
-    border: none !important;
-    box-shadow: none !important;
   }
 }
 
