@@ -7,9 +7,10 @@ import {
 } from 'lucide-react';
 import RealRxScanner from './components/RealRxScanner';
 import RealPharmacyMap from './components/RealPharmacyMap';
+import PharmacyReceiptModal from './components/PharmacyReceiptModal';
 
 export default function App() {
-  // Authentication & Active User State
+  // Authentication & Active User State (Defaults to Rahul Sharma, or null when logged out)
   const [currentUser, setCurrentUser] = useState({
     name: 'Rahul Sharma',
     email: 'rahul@gmail.com',
@@ -20,6 +21,7 @@ export default function App() {
   const [authModalOpen, setAuthModalOpen] = useState(false);
   const [authMode, setAuthMode] = useState('login'); // 'login' | 'signup'
   const [authForm, setAuthForm] = useState({ name: '', email: '', password: '', role: 'CUSTOMER', pharmacy: 'Apollo Pharmacy (24x7)' });
+  const [receiptTicket, setReceiptTicket] = useState(null);
 
   // Navigation State
   const [activeTab, setActiveTab] = useState('browse'); // 'browse' | 'map' | 'rx-scanner' | 'my-holds' | 'manager' | 'admin'
@@ -376,24 +378,77 @@ export default function App() {
     }
   };
 
-  // Auth Handler
-  const handleAuthSubmit = (e) => {
-    e.preventDefault();
-    setCurrentUser({
-      name: authForm.name || (authForm.role === 'ADMIN' ? 'System Admin' : authForm.role === 'SITE_MANAGER' ? 'Apollo Chemist' : 'Demo Customer'),
-      email: authForm.email,
-      role: authForm.role,
-      pharmacy: authForm.pharmacy
-    });
-    setAuthModalOpen(false);
+  // Handle Logout
+  const handleLogout = () => {
+    setCurrentUser(null);
+    setActiveTab('browse');
+    alert('You have logged out successfully.');
+  };
 
-    if (authForm.role === 'SITE_MANAGER') {
-      setActiveTab('manager');
-      if (authForm.pharmacy) setManagerStore(authForm.pharmacy);
-    } else if (authForm.role === 'ADMIN') {
-      setActiveTab('admin');
-    } else {
-      setActiveTab('browse');
+  // Auth Handler connected to MongoDB with automatic role identification
+  const handleAuthSubmit = async (e) => {
+    e.preventDefault();
+    try {
+      if (authMode === 'signup') {
+        const res = await fetch('http://localhost:5000/api/auth/signup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: authForm.name,
+            email: authForm.email,
+            password: authForm.password,
+            role: authForm.role,
+            pharmacy_name: authForm.pharmacy
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          alert(`Account created! Identified as ${data.user.role}.`);
+          setCurrentUser(data.user);
+          setAuthModalOpen(false);
+          if (data.user.role === 'SITE_MANAGER') {
+            setActiveTab('manager');
+            if (data.user.pharmacy) setManagerStore(data.user.pharmacy);
+          } else if (data.user.role === 'ADMIN') {
+            setActiveTab('admin');
+          } else {
+            setActiveTab('browse');
+          }
+        } else {
+          alert(data.error || 'Failed to create account');
+        }
+      } else {
+        // LOGIN: Backend identifies whether person is Customer, Chemist, or Admin from MongoDB!
+        const res = await fetch('http://localhost:5000/api/auth/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            email: authForm.email,
+            password: authForm.password
+          })
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          alert(`Welcome back, ${data.user.name}! Identified as ${data.user.role}.`);
+          setCurrentUser(data.user);
+          setAuthModalOpen(false);
+          if (data.user.role === 'SITE_MANAGER') {
+            setActiveTab('manager');
+            if (data.user.pharmacy) setManagerStore(data.user.pharmacy);
+          } else if (data.user.role === 'ADMIN') {
+            setActiveTab('admin');
+          } else {
+            setActiveTab('browse');
+          }
+        } else {
+          alert(data.error || 'Invalid credentials');
+        }
+      }
+    } catch (err) {
+      console.error('Authentication error:', err);
+      alert('Could not connect to authentication service on localhost:5000');
     }
   };
 
@@ -472,7 +527,7 @@ export default function App() {
               )}
             </button>
 
-            {currentUser.role === 'SITE_MANAGER' && (
+            {currentUser?.role === 'SITE_MANAGER' && (
               <button
                 onClick={() => setActiveTab('manager')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-slate-900 shadow`}
@@ -481,7 +536,7 @@ export default function App() {
               </button>
             )}
 
-            {currentUser.role === 'ADMIN' && (
+            {currentUser?.role === 'ADMIN' && (
               <button
                 onClick={() => setActiveTab('admin')}
                 className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 bg-rose-600 hover:bg-rose-700 text-white shadow`}
@@ -490,16 +545,39 @@ export default function App() {
               </button>
             )}
 
-            <button
-              onClick={() => setAuthModalOpen(true)}
-              className="ml-2 bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-2 shadow"
-            >
-              <User className="h-3.5 w-3.5 text-emerald-400" />
-              <div className="text-left hidden sm:block leading-none">
-                <span className="block text-[11px] font-bold">{currentUser.name}</span>
-                <span className="text-[9px] text-emerald-400 font-semibold uppercase">{currentUser.role.replace('_', ' ')}</span>
+            {currentUser ? (
+              <div className="flex items-center gap-1.5 ml-2">
+                <button
+                  onClick={() => setAuthModalOpen(true)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold px-3 py-2 rounded-xl transition flex items-center gap-2 shadow"
+                  title="Switch or view account details"
+                >
+                  <User className="h-3.5 w-3.5 text-emerald-400" />
+                  <div className="text-left hidden sm:block leading-none">
+                    <span className="block text-[11px] font-bold">{currentUser.name}</span>
+                    <span className="text-[9px] text-emerald-400 font-semibold uppercase">{currentUser.role.replace('_', ' ')}</span>
+                  </div>
+                </button>
+                <button
+                  onClick={handleLogout}
+                  className="bg-emerald-900 hover:bg-rose-900 border border-emerald-500 hover:border-rose-500 text-white text-xs font-bold px-2.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow"
+                  title="Log out of PharmaLocate"
+                >
+                  <LogOut className="h-3.5 w-3.5 text-rose-300" />
+                  <span className="hidden md:inline">Logout</span>
+                </button>
               </div>
-            </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setAuthMode('login');
+                  setAuthModalOpen(true);
+                }}
+                className="ml-2 bg-white hover:bg-emerald-50 text-emerald-900 text-xs font-extrabold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow"
+              >
+                <LogIn className="h-3.5 w-3.5 text-emerald-700" /> Sign In
+              </button>
+            )}
           </div>
         </div>
       </header>
@@ -602,7 +680,13 @@ export default function App() {
                     </div>
                   </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setReceiptTicket(recentReserved)}
+                    className="bg-emerald-900 hover:bg-emerald-950 text-white text-xs font-bold px-3.5 py-2 rounded-xl transition flex items-center gap-1.5 shadow-sm"
+                  >
+                    <Printer className="h-3.5 w-3.5 text-emerald-400" /> View Official Receipt
+                  </button>
                   <button
                     onClick={() => setActiveTab('my-holds')}
                     className="bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold px-4 py-2 rounded-xl transition"
@@ -777,10 +861,10 @@ export default function App() {
                       <p className="text-xs font-bold text-slate-700">₹{r.price?.toFixed(2)} (Pay at Counter)</p>
                       <div className="flex gap-2 mt-2">
                         <button 
-                          onClick={() => window.print()}
-                          className="text-[11px] bg-slate-900 text-white font-bold px-3 py-1.5 rounded-xl hover:bg-slate-800 transition flex items-center gap-1"
+                          onClick={() => setReceiptTicket(r)}
+                          className="text-[11px] bg-slate-900 text-white font-bold px-3 py-1.5 rounded-xl hover:bg-slate-800 transition flex items-center gap-1.5 shadow"
                         >
-                          <Printer className="h-3 w-3" /> Print
+                          <Printer className="h-3 w-3 text-emerald-400" /> View / Print Receipt
                         </button>
                         {r.status === 'ACTIVE' && (
                           <button 
@@ -1188,20 +1272,22 @@ export default function App() {
                 />
               </div>
 
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Account Role</label>
-                <select
-                  value={authForm.role}
-                  onChange={(e) => setAuthForm({ ...authForm, role: e.target.value })}
-                  className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-bold bg-white"
-                >
-                  <option value="CUSTOMER">🧑 Customer / Patient</option>
-                  <option value="SITE_MANAGER">🏪 Site Manager (Retail Chemist)</option>
-                  <option value="ADMIN">🛡️ Platform Administrator</option>
-                </select>
-              </div>
+              {authMode === 'signup' && (
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Select Your Role</label>
+                  <select
+                    value={authForm.role}
+                    onChange={(e) => setAuthForm({ ...authForm, role: e.target.value })}
+                    className="w-full px-3.5 py-2.5 border border-slate-300 rounded-xl text-xs focus:ring-2 focus:ring-emerald-500 outline-none font-bold bg-white"
+                  >
+                    <option value="CUSTOMER">🧑 Customer / Patient</option>
+                    <option value="SITE_MANAGER">🏪 Retail Chemist (Store Manager)</option>
+                    <option value="ADMIN">🛡️ Platform Administrator</option>
+                  </select>
+                </div>
+              )}
 
-              {authForm.role === 'SITE_MANAGER' && (
+              {authMode === 'signup' && authForm.role === 'SITE_MANAGER' && (
                 <div>
                   <label className="block text-[11px] font-bold text-slate-600 uppercase mb-1">Assigned Pharmacy Branch</label>
                   <select
@@ -1217,22 +1303,29 @@ export default function App() {
                 </div>
               )}
 
+              {authMode === 'login' && (
+                <div className="bg-slate-50 border border-slate-200 p-2.5 rounded-xl text-[11px] text-slate-600 flex items-center gap-1.5">
+                  <ShieldCheck className="h-4 w-4 text-emerald-600 shrink-0" />
+                  <span>The platform will <strong>auto-identify your role</strong> (Customer, Chemist, or Admin) upon sign in.</span>
+                </div>
+              )}
+
               <button
                 type="submit"
                 className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-2xl text-xs transition shadow"
               >
-                {authMode === 'login' ? 'Sign In' : 'Create Account'}
+                {authMode === 'login' ? 'Sign In (Auto-Identify Role)' : 'Create Account in MongoDB'}
               </button>
             </form>
 
             {/* Quick Demo Logins */}
             <div className="pt-2 border-t border-slate-100">
               <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-center mb-2">
-                1-Click Demo Accounts (For Viva/Demo)
+                1-Click Demo Accounts (Instant Role Switch)
               </p>
               <div className="grid grid-cols-3 gap-2">
                 <button
-                  onClick={() => quickLogin('CUSTOMER', 'Rahul Patient')}
+                  onClick={() => quickLogin('CUSTOMER', 'Rahul Sharma')}
                   className="bg-slate-100 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-300 p-2 rounded-xl text-center text-[10px] font-bold transition"
                 >
                   🧑 Customer
@@ -1254,6 +1347,12 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* MODAL: OFFICIAL PHARMACY HOLD RECEIPT & CLAIM SLIP */}
+      <PharmacyReceiptModal
+        ticket={receiptTicket}
+        onClose={() => setReceiptTicket(null)}
+      />
     </div>
   );
 }

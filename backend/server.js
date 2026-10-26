@@ -10,6 +10,86 @@ app.use(express.json());
 // Connect to MongoDB
 connectDB();
 
+// API 0.1: User Sign Up (Registers Customer, Chemist, or Admin in MongoDB)
+app.post('/api/auth/signup', async (req, res) => {
+  try {
+    const { name, email, password, role = 'CUSTOMER', pharmacy_name } = req.body;
+
+    if (!email || !password || !name) {
+      return res.status(400).json({ error: 'Name, email, and password are required' });
+    }
+
+    const existing = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existing) {
+      return res.status(400).json({ error: 'An account with this email already exists. Please log in.' });
+    }
+
+    let pharmacyId = null;
+    if (role === 'SITE_MANAGER' && pharmacy_name) {
+      const p = await Pharmacy.findOne({ name: pharmacy_name });
+      if (p) pharmacyId = p._id;
+    }
+
+    const user = await User.create({
+      username: name.trim(),
+      email: email.toLowerCase().trim(),
+      password: password,
+      role: role.toUpperCase(),
+      pharmacy: pharmacyId
+    });
+
+    const populated = await User.findById(user._id).populate('pharmacy');
+
+    res.json({
+      success: true,
+      message: `Account created successfully as ${user.role}!`,
+      user: {
+        id: populated._id,
+        name: populated.username,
+        email: populated.email,
+        role: populated.role,
+        pharmacy: populated.pharmacy ? populated.pharmacy.name : (pharmacy_name || '')
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// API 0.2: User Login (Auto-identifies role: Customer, Chemist, or Admin from MongoDB)
+app.post('/api/auth/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    if (!email || !password) {
+      return res.status(400).json({ error: 'Please provide both email and password' });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() }).populate('pharmacy');
+    if (!user) {
+      return res.status(401).json({ error: 'No account registered with this email. Please sign up!' });
+    }
+
+    if (user.password !== password) {
+      return res.status(401).json({ error: 'Incorrect password. Please verify your credentials.' });
+    }
+
+    res.json({
+      success: true,
+      message: `Welcome back, ${user.username}! Identified as ${user.role}.`,
+      user: {
+        id: user._id,
+        name: user.username,
+        email: user.email,
+        role: user.role, // 'CUSTOMER' | 'SITE_MANAGER' | 'ADMIN'
+        pharmacy: user.pharmacy ? user.pharmacy.name : ''
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // API 1: Live Medicine Search across local pharmacies
 app.get('/api/search', async (req, res) => {
   try {
