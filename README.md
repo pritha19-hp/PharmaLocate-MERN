@@ -68,3 +68,5 @@ npm run dev
 ## 📜 License
 Licensed under the [MIT License](LICENSE).
 
+## Live link
+https://pritha19-hp.github.io/PharmaLocate-MERN/
