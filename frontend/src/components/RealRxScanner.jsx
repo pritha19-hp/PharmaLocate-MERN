@@ -6,7 +6,9 @@ import {
 } from 'lucide-react';
 import Tesseract from 'tesseract.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL !== undefined
+  ? import.meta.env.VITE_API_URL
+  : (import.meta.env.PROD ? '' : 'http://localhost:5000');
 
 // Comprehensive dictionary of common prescription medicines & fuzzy patterns
 const KNOWN_MEDICINES = [
@@ -388,7 +390,7 @@ export default function RealRxScanner({ onSelectMedicine, masterInventory = [], 
       }
     } catch (err) {
       console.error('MongoDB Save Error:', err);
-      alert('Could not connect to MongoDB backend on http://localhost:5000');
+      alert('Could not connect to MongoDB backend: ' + (err.message || 'Network error'));
     } finally {
       setSavingMedIndex(null);
     }

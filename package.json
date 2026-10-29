@@ -1,0 +1,17 @@
+{
+  "name": "pharmalocate-mern",
+  "version": "1.0.0",
+  "private": true,
+  "description": "PharmaLocate - Real-Time Pharmacy Inventory & Medicine Hold System",
+  "scripts": {
+    "build": "npm --prefix frontend install && npm --prefix frontend run build",
+    "start": "node backend/server.js",
+    "dev": "node backend/server.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "mongoose": "^8.2.1"
+  }
+}

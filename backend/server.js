@@ -1,17 +1,54 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
+const mongoose = require('mongoose');
 const { connectDB, User, Pharmacy, Medicine, Inventory, Reservation } = require('./database');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Connect to MongoDB
-connectDB();
+// Database connection middleware for Serverless & Direct execution
+app.use(async (req, res, next) => {
+  // Allow health check even before database connects
+  if (req.path === '/' || req.path === '/api' || req.path === '/health' || req.path === '/api/health') {
+    return next();
+  }
+  try {
+    await connectDB();
+    next();
+  } catch (err) {
+    console.error('Database connection error in request:', err.message);
+    return res.status(503).json({
+      error: 'MongoDB Atlas connection failed. Please ensure MONGO_URI is set in Vercel project environment variables.',
+      details: err.message
+    });
+  }
+});
+
+const router = express.Router();
+
+// Health Check
+router.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    message: 'PharmaLocate MERN Backend API is running on Vercel',
+    version: '1.0.0',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
+});
+
+router.get('/health', (req, res) => {
+  res.json({
+    status: 'healthy',
+    database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
+    timestamp: new Date().toISOString()
+  });
+});
 
 // API 0.1: User Sign Up (Registers Customer, Chemist, or Admin in MongoDB)
-app.post('/api/auth/signup', async (req, res) => {
+router.post('/auth/signup', async (req, res) => {
   try {
     const { name, email, password, role = 'CUSTOMER', pharmacy_name } = req.body;
 
@@ -57,7 +94,7 @@ app.post('/api/auth/signup', async (req, res) => {
 });
 
 // API 0.2: User Login (Auto-identifies role: Customer, Chemist, or Admin from MongoDB)
-app.post('/api/auth/login', async (req, res) => {
+router.post('/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -91,7 +128,7 @@ app.post('/api/auth/login', async (req, res) => {
 });
 
 // API 1: Live Medicine Search across local pharmacies
-app.get('/api/search', async (req, res) => {
+router.get('/search', async (req, res) => {
   try {
     const query = req.query.q || '';
     const regex = new RegExp(query, 'i');
@@ -141,7 +178,7 @@ app.get('/api/search', async (req, res) => {
 });
 
 // API 2: Reserve / Hold Medicine for 60 minutes
-app.post('/api/reserve', async (req, res) => {
+router.post('/reserve', async (req, res) => {
   try {
     const { pharmacy_id, medicine_id, quantity = 1, patient_name } = req.body;
 
@@ -183,7 +220,7 @@ app.post('/api/reserve', async (req, res) => {
 });
 
 // API 3: Chemist Verify Passcode at Counter
-app.post('/api/reserve/verify', async (req, res) => {
+router.post('/reserve/verify', async (req, res) => {
   try {
     const { passcode } = req.body;
     const reservation = await Reservation.findOne({ reservation_code: passcode.toUpperCase() })
@@ -213,7 +250,7 @@ app.post('/api/reserve/verify', async (req, res) => {
 });
 
 // API 4: Chemist Adjust Stock in MongoDB
-app.post('/api/inventory/adjust', async (req, res) => {
+router.post('/inventory/adjust', async (req, res) => {
   try {
     const { pharmacy_id, medicine_id, delta } = req.body;
     let item = null;
@@ -239,7 +276,7 @@ app.post('/api/inventory/adjust', async (req, res) => {
 });
 
 // API 5: Get All Pharmacies from MongoDB
-app.get('/api/pharmacies', async (req, res) => {
+router.get('/pharmacies', async (req, res) => {
   try {
     const pharmacies = await Pharmacy.find();
     res.json(pharmacies);
@@ -249,7 +286,7 @@ app.get('/api/pharmacies', async (req, res) => {
 });
 
 // API 6: Get Full Inventory from MongoDB
-app.get('/api/inventory', async (req, res) => {
+router.get('/inventory', async (req, res) => {
   try {
     const inventoryItems = await Inventory.find()
       .populate('pharmacy')
@@ -281,7 +318,7 @@ app.get('/api/inventory', async (req, res) => {
 });
 
 // API 7: Add / Save New Medicine into MongoDB (From Prescription or Chemist)
-app.post('/api/inventory/add', async (req, res) => {
+router.post('/inventory/add', async (req, res) => {
   try {
     const { pharmacy_id, pharmacy_name, medicine_name, generic_name, category = 'General', stock = 50, price = 45 } = req.body;
 
@@ -363,7 +400,7 @@ app.post('/api/inventory/add', async (req, res) => {
 });
 
 // API 8: Delete Inventory Item from MongoDB
-app.delete('/api/inventory/:id', async (req, res) => {
+router.delete('/inventory/:id', async (req, res) => {
   try {
     const deleted = await Inventory.findByIdAndDelete(req.params.id);
     if (!deleted) return res.status(404).json({ error: 'Inventory item not found in MongoDB' });
@@ -374,7 +411,7 @@ app.delete('/api/inventory/:id', async (req, res) => {
 });
 
 // API 9: Get All Reservations from MongoDB
-app.get('/api/reservations', async (req, res) => {
+router.get('/reservations', async (req, res) => {
   try {
     const reservations = await Reservation.find()
       .populate('pharmacy')
@@ -406,7 +443,7 @@ app.get('/api/reservations', async (req, res) => {
 });
 
 // API 10: Cancel Reservation in MongoDB & Restore Stock
-app.post('/api/reserve/cancel', async (req, res) => {
+router.post('/reserve/cancel', async (req, res) => {
   try {
     const { code } = req.body;
     const reservation = await Reservation.findOne({ reservation_code: code.toUpperCase() });
@@ -433,7 +470,16 @@ app.post('/api/reserve/cancel', async (req, res) => {
   }
 });
 
-const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
-  console.log(`🚀 MERN Stack Express + MongoDB API running on http://localhost:${PORT}`);
-});
+// Mount router on both '/api' and '/' to guarantee seamless routing in all deployment configurations
+app.use('/api', router);
+app.use('/', router);
+
+// Start server directly when invoked from node, otherwise export for Vercel serverless functions
+if (require.main === module) {
+  const PORT = process.env.PORT || 5000;
+  app.listen(PORT, () => {
+    console.log(`🚀 MERN Stack Express + MongoDB API running on http://localhost:${PORT}`);
+  });
+}
+
+module.exports = app;

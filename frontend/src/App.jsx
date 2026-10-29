@@ -9,7 +9,9 @@ import RealRxScanner from './components/RealRxScanner';
 import RealPharmacyMap from './components/RealPharmacyMap';
 import PharmacyReceiptModal from './components/PharmacyReceiptModal';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API_URL = import.meta.env.VITE_API_URL !== undefined
+  ? import.meta.env.VITE_API_URL
+  : (import.meta.env.PROD ? '' : 'http://localhost:5000');
 
 export default function App() {
   // Authentication & Active User State (Defaults to Rahul Sharma, or null when logged out)
