@@ -1,4 +1,12 @@
 const mongoose = require('mongoose');
+const dns = require('dns');
+
+// Configure reliable DNS servers for MongoDB Atlas SRV lookups on Windows
+try {
+  dns.setServers(['8.8.8.8', '1.1.1.1']);
+} catch (dnsErr) {
+  // Silent fallback in restricted runtimes
+}
 
 // 1. User Schema (Customer / Patient, Site Manager / Chemist, Admin)
 const UserSchema = new mongoose.Schema({
@@ -65,7 +73,13 @@ const connectDB = async () => {
     return cachedPromise;
   }
 
-  const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/pharma_locate';
+  const MONGO_URI = process.env.MONGO_URI || process.env.MONGODB_URI;
+
+  if (!MONGO_URI) {
+    const errorMsg = 'Configuration Error: Neither MONGO_URI nor MONGODB_URI is defined. Please configure MONGO_URI in your environment or backend/.env file.';
+    console.error(`❌ ${errorMsg}`);
+    throw new Error(errorMsg);
+  }
 
   cachedPromise = mongoose.connect(MONGO_URI, {
     serverSelectionTimeoutMS: 5000

@@ -1,17 +1,41 @@
+const path = require('path');
+// Ensure .env is loaded reliably regardless of current working directory
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 require('dotenv').config();
+
 const express = require('express');
 const cors = require('cors');
 const mongoose = require('mongoose');
 const { connectDB, User, Pharmacy, Medicine, Inventory, Reservation } = require('./database');
 
 const app = express();
-app.use(cors());
+
+// Secure CORS configuration supporting local dev, GitHub Pages, and Vercel domains
+const allowedOrigins = process.env.CORS_ORIGIN 
+  ? process.env.CORS_ORIGIN.split(',').map(o => o.trim()) 
+  : ['http://localhost:5173', 'http://localhost:3000', 'https://pritha19-hp.github.io'];
+
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin) return callback(null, true);
+    if (!process.env.CORS_ORIGIN || allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+      return callback(null, true);
+    }
+    return callback(null, false);
+  },
+  credentials: false
+}));
+
 app.use(express.json());
 
 // Database connection middleware for Serverless & Direct execution
 app.use(async (req, res, next) => {
-  // Allow health check even before database connects
-  if (req.path === '/' || req.path === '/api' || req.path === '/health' || req.path === '/api/health') {
+  // Allow health and diagnostic checks even before database connects
+  if (
+    req.path === '/' || req.path === '/api' || 
+    req.path === '/health' || req.path === '/api/health' ||
+    req.path === '/db-status' || req.path === '/api/db-status'
+  ) {
     return next();
   }
   try {
@@ -45,6 +69,39 @@ router.get('/health', (req, res) => {
     database: mongoose.connection.readyState === 1 ? 'connected' : 'disconnected',
     timestamp: new Date().toISOString()
   });
+});
+
+// Safe diagnostic endpoint executing an actual MongoDB ping
+router.get('/db-status', async (req, res) => {
+  try {
+    await connectDB();
+    if (!mongoose.connection || !mongoose.connection.db) {
+      return res.status(503).json({
+        status: 'disconnected',
+        error: 'Database connection instance not available'
+      });
+    }
+
+    const adminDb = mongoose.connection.db.admin();
+    const pingResult = await adminDb.ping();
+
+    if (pingResult && pingResult.ok === 1) {
+      return res.json({
+        status: 'connected',
+        database: mongoose.connection.name || 'pharma_locate'
+      });
+    } else {
+      return res.status(503).json({
+        status: 'disconnected',
+        error: 'Database ping returned non-ok status'
+      });
+    }
+  } catch (err) {
+    return res.status(503).json({
+      status: 'disconnected',
+      error: 'Database connection or ping failed'
+    });
+  }
 });
 
 // API 0.1: User Sign Up (Registers Customer, Chemist, or Admin in MongoDB)

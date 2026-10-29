@@ -1,11 +1,18 @@
 node_modules
 .DS_Store
 *.log
+
+# Environment Files
 .env
+.env.*
+!.env.example
+backend/.env
+backend/.env.*
+!backend/.env.example
+
 dist
 build
 pharmacy.db
-
 
 .vercel
 *.pdf
